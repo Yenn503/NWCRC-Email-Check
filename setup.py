@@ -42,8 +42,9 @@ def main():
         print("1. Get your API key from https://haveibeenpwned.com/API/Key")
         print("2. Update the HIBP_API_KEY in .env file")
         print("3. Generate a secret key and update SECRET_KEY in .env")
+        port = os.environ.get('PORT') or os.environ.get('APP_PORT') or '8000'
         print("4. Run: python app.py")
-        print("5. Open http://localhost:5000 in your browser")
+        print(f"5. Open http://localhost:{port} in your browser")
         print("\nFor help, see README.md")
         
     except Exception as e:

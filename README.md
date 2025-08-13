@@ -39,7 +39,16 @@ python app.py
 ```
 
 4. **Access the Interface**:
-   - Open your browser to `http://127.0.0.1:5000`
+   - Open your browser to `http://127.0.0.1:8000`
+
+Optional: change host/port
+- Set `APP_PORT` (or `PORT`) and `HOST` in your `.env` to override defaults. Example:
+
+```
+HOST=0.0.0.0
+APP_PORT=8080
+```
+Then browse to `http://127.0.0.1:8080`.
 
 ## Usage
 

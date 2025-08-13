@@ -26,7 +26,7 @@ python app.py
 \`\`\`
 
 ### 5. Access the Web Interface
-Open your browser and go to: http://localhost:5000
+Open your browser and go to: http://localhost:8000
 
 ## Configuration Options
 

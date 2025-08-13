@@ -38,8 +38,15 @@ except ImportError:
 
 app = Flask(__name__)
 app.config.from_object(Config)
-# Restrict CORS origins for Socket.IO to local development origins
-socketio = SocketIO(app, cors_allowed_origins=["http://localhost:5000", "http://127.0.0.1:5000"])
+# Restrict CORS origins for Socket.IO to local development origins (use configured port)
+_port = getattr(Config, 'PORT', 8000)
+socketio = SocketIO(
+    app,
+    cors_allowed_origins=[
+        f"http://localhost:{_port}",
+        f"http://127.0.0.1:{_port}",
+    ],
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -1179,4 +1186,10 @@ if __name__ == "__main__":
     os.makedirs('exports', exist_ok=True)
     
     # Disable reloader to prevent background threads from duplicating
-    socketio.run(app, debug=Config.DEBUG, host='0.0.0.0', port=5000, use_reloader=False)
+    socketio.run(
+        app,
+        debug=Config.DEBUG,
+        host=getattr(Config, 'HOST', '0.0.0.0'),
+        port=getattr(Config, 'PORT', 8000),
+        use_reloader=False,
+    )
