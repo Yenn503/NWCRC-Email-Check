@@ -28,10 +28,11 @@ except ImportError:
 
 try:
     from reportlab.lib.pagesizes import letter, A4
-    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image, PageBreak, ListFlowable, ListItem
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib import colors
     from reportlab.lib.units import inch
+    from reportlab.lib.utils import ImageReader
     PDF_AVAILABLE = True
 except ImportError:
     PDF_AVAILABLE = False
@@ -830,7 +831,7 @@ def export_excel(results, batch_id, timestamp, options):
         return jsonify({'error': str(e)}), 400
 
 def write_pdf_file(results, batch_id, timestamp, options):
-    """Export results as PDF report"""
+    """Export results as a professional PDF report with branding and logo"""
     if not PDF_AVAILABLE:
         raise RuntimeError('PDF export not available - reportlab not installed')
     
@@ -845,27 +846,158 @@ def write_pdf_file(results, batch_id, timestamp, options):
     
     if options.get('only_high_severity', False):
         filtered_results = [r for r in filtered_results if r.get('severity') in ['high', 'critical']]
-    
-    doc = SimpleDocTemplate(filepath, pagesize=A4)
+    # Branding
+    brand_primary = colors.HexColor('#0F4C81')  # Deep blue
+    brand_accent = colors.HexColor('#51CF66')   # Green accent
+    brand_light = colors.HexColor('#F5F7FA')    # Light background
+
+    # Resolve logo path (fallback if primary not found)
+    # Prefer absolute paths under the Flask app root
+    base_static = os.path.join(app.root_path, 'static', 'img') if hasattr(app, 'root_path') else os.path.join('static', 'img')
+    logo_path_candidates = [
+        os.path.join(base_static, 'Logo.png'),
+        os.path.join(base_static, 'Logo2.png'),
+        os.path.join('static', 'img', 'Logo.png'),
+        os.path.join('static', 'img', 'Logo2.png')
+    ]
+    logo_path = next((p for p in logo_path_candidates if os.path.exists(p)), None)
+
+    # Document setup with margins
+    doc = SimpleDocTemplate(
+        filepath,
+        pagesize=A4,
+        rightMargin=36,
+        leftMargin=36,
+        topMargin=72,
+        bottomMargin=54
+    )
     styles = getSampleStyleSheet()
     story = []
-    
-    # Title
+
+    # Header/Footer drawing
+    def draw_header_footer(canvas_obj, doc_obj):
+        canvas_obj.saveState()
+        width, height = A4
+        # Header bar
+        bar_height = 30
+        bar_y = height - bar_height - 18
+        canvas_obj.setFillColor(brand_primary)
+        canvas_obj.rect(0, bar_y, width, bar_height, stroke=0, fill=1)
+
+        # Logo centered vertically within the bar
+        if logo_path:
+            try:
+                logo_h = 22
+                logo_y = bar_y + (bar_height - logo_h) / 2
+                canvas_obj.drawImage(logo_path, 36, logo_y, height=logo_h, preserveAspectRatio=True, mask='auto')
+            except Exception:
+                pass
+
+        # Title and date in header bar
+        canvas_obj.setFont('Helvetica-Bold', 12)
+        canvas_obj.setFillColor(colors.whitesmoke)
+        canvas_obj.drawString(200, bar_y + (bar_height - 12) / 2 + 2, 'Email Breach Scan Report')
+        canvas_obj.setFont('Helvetica', 9)
+        canvas_obj.drawRightString(width - 36, bar_y + (bar_height - 9) / 2 + 1, datetime.now().strftime('%Y-%m-%d %H:%M'))
+
+        # Footer line and page number
+        footer_y = 40
+        canvas_obj.setStrokeColor(brand_primary)
+        canvas_obj.line(36, footer_y + 8, width - 36, footer_y + 8)
+        canvas_obj.setFont('Helvetica', 9)
+        canvas_obj.setFillColor(colors.black)
+        canvas_obj.drawString(36, footer_y, 'NWCRC Breach Scanner')
+        canvas_obj.drawRightString(width - 36, footer_y, f'Page {canvas_obj.getPageNumber()}')
+        canvas_obj.restoreState()
+
+    # Cover title
     title_style = ParagraphStyle(
         'CustomTitle',
         parent=styles['Heading1'],
-        fontSize=24,
-        spaceAfter=30,
-        alignment=1  # Center alignment
+        fontSize=22,
+        textColor=brand_primary,
+        spaceAfter=16,
+        alignment=1
     )
-    story.append(Paragraph("Email Breach Scan Report", title_style))
-    story.append(Spacer(1, 20))
-    
+    subtitle_style = ParagraphStyle(
+        'Subtitle',
+        parent=styles['Normal'],
+        fontSize=11,
+        textColor=colors.black,
+        alignment=1,
+        spaceAfter=24
+    )
+    # Optional custom cover image
+    custom_cover_path = options.get('cover_image')
+    if not custom_cover_path:
+        # look for a default uploaded cover
+        for candidate in ['cover.jpg', 'cover.jpeg', 'cover.png']:
+            candidate_path = os.path.join(Config.UPLOAD_FOLDER, candidate)
+            if os.path.exists(candidate_path):
+                custom_cover_path = candidate_path
+                break
+
+    # Cover page content (blue card styled like the web UI) or custom image
+    cover_title_style = ParagraphStyle('CoverTitle', parent=styles['Heading1'], fontSize=26, textColor=colors.whitesmoke, alignment=1)
+    cover_sub_style = ParagraphStyle('CoverSub', parent=styles['Normal'], fontSize=11, textColor=colors.whitesmoke, alignment=1)
+    if custom_cover_path and os.path.exists(custom_cover_path):
+        # Full-page cover image
+        try:
+            img = ImageReader(custom_cover_path)
+            iw, ih = img.getSize()
+            pw, ph = A4
+            # scale to fit page while preserving aspect ratio
+            scale = min(pw / iw, ph / ih)
+            w, h = iw * scale, ih * scale
+            # center placement
+            x = (pw - w) / 2
+            y = (ph - h) / 2
+            # draw on a blank canvas page by using a temporary story with spacer and onFirstPage hook
+            def draw_custom_cover(c, d):
+                c.saveState()
+                c.drawImage(custom_cover_path, x, y, width=w, height=h, preserveAspectRatio=True, mask='auto')
+                c.restoreState()
+            # Build a single-page cover then continue with main story on later pages
+            cover_story = [Spacer(1, 1)]
+            SimpleDocTemplate(filepath, pagesize=A4).build(cover_story, onFirstPage=draw_custom_cover)
+            # reinitialize doc to append subsequent pages
+            doc = SimpleDocTemplate(
+                filepath,
+                pagesize=A4,
+                rightMargin=36,
+                leftMargin=36,
+                topMargin=72,
+                bottomMargin=54
+            )
+        except Exception as e:
+            logger.warning(f"Failed to render custom cover: {e}; using default cover")
+            custom_cover_path = None
+
+    if not custom_cover_path:
+        cover_data = [[
+            Paragraph('Email Breach Scan Report', cover_title_style),
+            Paragraph(f'Batch ID: {batch_id} • Generated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}', cover_sub_style),
+            Spacer(1, 8),
+            Paragraph('This report summarizes the results of your email breach scan and includes a copy-friendly appendix of breached accounts.', cover_sub_style)
+        ]]
+        cover = Table(cover_data, colWidths=[doc.width])
+        cover.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), brand_primary),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('LEFTPADDING', (0, 0), (-1, -1), 24),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 24),
+            ('TOPPADDING', (0, 0), (-1, -1), 60),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 60),
+            ('TEXTCOLOR', (0, 0), (-1, -1), colors.whitesmoke),
+        ]))
+        story.append(Spacer(1, 60))
+        story.append(cover)
+    story.append(PageBreak())
+
     # Summary section
     stats = batch_processor.get_batch_statistics()
     summary_data = [
-        ['Batch ID', batch_id],
-        ['Report Generated', datetime.now().strftime("%Y-%m-%d %H:%M:%S")],
         ['Total Emails Scanned', str(len(results))],
         ['Clean Emails', str(stats.get('clean_emails', 0))],
         ['Compromised Emails', str(stats.get('compromised_emails', 0))],
@@ -873,69 +1005,117 @@ def write_pdf_file(results, batch_id, timestamp, options):
         ['Total Breaches', str(stats.get('total_breaches', 0))],
         ['Processing Time', f"{stats.get('processing_time', 0):.1f}s" if stats.get('processing_time') else 'N/A']
     ]
-    
-    summary_table = Table(summary_data, colWidths=[2*inch, 2*inch])
+
+    summary_table = Table(summary_data, colWidths=[2.6*inch, 1.6*inch])
     summary_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (0, -1), colors.grey),
-        ('TEXTCOLOR', (0, 0), (0, -1), colors.whitesmoke),
-        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+        ('BACKGROUND', (0, 0), (-1, -1), brand_light),
+        ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
+        ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+        ('FONTNAME', (1, 0), (1, -1), 'Helvetica'),
         ('FONTSIZE', (0, 0), (-1, -1), 10),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
-        ('BACKGROUND', (1, 0), (1, -1), colors.beige),
-        ('GRID', (0, 0), (-1, -1), 1, colors.black)
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('INNERGRID', (0, 0), (-1, -1), 0.25, colors.lightgrey),
+        ('BOX', (0, 0), (-1, -1), 0.5, brand_primary),
+        ('LEFTPADDING', (0, 0), (-1, -1), 8),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+        ('TOPPADDING', (0, 0), (-1, -1), 6),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6)
     ]))
-    
-    story.append(Paragraph("Scan Summary", styles['Heading2']))
+
+    story.append(Paragraph('Scan Summary', styles['Heading2']))
     story.append(summary_table)
-    story.append(Spacer(1, 20))
-    
-    # Results section (limited to first 50 for PDF readability)
-    story.append(Paragraph("Detailed Results (First 50 entries)", styles['Heading2']))
-    
-    results_data = [['Email', 'Status', 'Severity', 'Breaches', 'Breach Count']]
-    
-    for result in filtered_results[:50]:  # Limit for PDF readability
-        breaches_str = ', '.join([b.get('Name', 'Unknown') for b in result.get('breaches', [])][:3])  # First 3 breaches
-        if len(result.get('breaches', [])) > 3:
-            breaches_str += f" (+{len(result.get('breaches', [])) - 3} more)"
-        
+    story.append(Spacer(1, 16))
+
+    # Top breaches section (if available)
+    top_breaches = stats.get('top_breaches') or {}
+    if top_breaches:
+        tb_rows = [['Breach Name', 'Occurrences']]
+        tb_rows.extend([[name, str(count)] for name, count in top_breaches.items()])
+        tb_table = Table(tb_rows, colWidths=[3.2*inch, 1.0*inch])
+        tb_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), brand_primary),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('ALIGN', (1, 1), (-1, -1), 'CENTER'),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('GRID', (0, 0), (-1, -1), 0.25, colors.lightgrey),
+            ('BOX', (0, 0), (-1, -1), 0.5, brand_primary),
+        ]))
+        story.append(Paragraph('Top Breaches', styles['Heading3']))
+        story.append(tb_table)
+        story.append(Spacer(1, 16))
+
+    # Results section (limit to first 50 for readability). Breaches column removed.
+    story.append(Paragraph('Detailed Results (First 50 entries)', styles['Heading2']))
+
+    results_data = [['Email', 'Status', 'Severity', 'Breach Count']]
+    for result in filtered_results[:50]:
         results_data.append([
-            result['email'][:30] + '...' if len(result['email']) > 30 else result['email'],
-            result['status'],
-            result.get('severity', 'unknown'),
-            breaches_str[:40] + '...' if len(breaches_str) > 40 else breaches_str,
+            result['email'][:40] + '...' if len(result['email']) > 40 else result['email'],
+            result['status'].capitalize(),
+            (result.get('severity') or 'unknown').capitalize(),
             str(result.get('breach_count', 0))
         ])
-    
-    results_table = Table(results_data, colWidths=[2.2*inch, 0.8*inch, 0.8*inch, 2*inch, 0.7*inch])
+
+    results_table = Table(results_data, colWidths=[3.0*inch, 1.1*inch, 1.2*inch, 0.9*inch])
     results_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('BACKGROUND', (0, 0), (-1, 0), brand_primary),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
         ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
         ('FONTSIZE', (0, 0), (-1, -1), 8),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
-        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('GRID', (0, 0), (-1, -1), 0.25, colors.lightgrey),
         ('VALIGN', (0, 0), (-1, -1), 'TOP')
     ]))
-    
-    # Color code rows based on status
-    for i, result in enumerate(filtered_results[:50], 1):
+
+    # Color code data rows by status
+    for i, result in enumerate(filtered_results[:50], start=1):
         if result['status'] == 'compromised':
-            results_table.setStyle(TableStyle([('BACKGROUND', (0, i), (-1, i), colors.lightcoral)]))
+            bg = colors.HexColor('#FDECEC')  # light red tint
         elif result['status'] == 'clean':
-            results_table.setStyle(TableStyle([('BACKGROUND', (0, i), (-1, i), colors.lightgreen)]))
+            bg = colors.HexColor('#EAF7EE')  # light green tint
         elif result['status'] == 'error':
-            results_table.setStyle(TableStyle([('BACKGROUND', (0, i), (-1, i), colors.lightyellow)]))
-    
+            bg = colors.HexColor('#FFF6E5')  # light yellow tint
+        else:
+            bg = colors.whitesmoke
+        results_table.setStyle(TableStyle([('BACKGROUND', (0, i), (-1, i), bg)]))
+
     story.append(results_table)
-    
+
     if len(filtered_results) > 50:
         story.append(Spacer(1, 10))
-        story.append(Paragraph(f"Note: Showing first 50 of {len(filtered_results)} results. Export to Excel or CSV for complete data.", styles['Normal']))
-    
-    doc.build(story)
+        story.append(Paragraph(
+            f"Note: Showing first 50 of {len(filtered_results)} results. Export to Excel or CSV for complete data.",
+            styles['Italic'] if 'Italic' in styles else styles['Normal']
+        ))
+
+    # Copy-friendly appendix: list all emails with breaches as bullet points
+    story.append(PageBreak())
+    story.append(Paragraph('Appendix: Breach Details (Copy-friendly)', styles['Heading2']))
+
+    compromised = [r for r in results if r.get('breach_count', 0) > 0 and r.get('breaches')]
+    if not compromised:
+        story.append(Paragraph('No breaches found for any scanned email.', styles['Normal']))
+    else:
+        email_heading_style = ParagraphStyle('EmailHeading', parent=styles['Heading4'], textColor=brand_primary)
+        bullet_style = ParagraphStyle('Bullet', parent=styles['Normal'], leftIndent=18, spaceBefore=2, spaceAfter=2)
+        for r in compromised:
+            story.append(Spacer(1, 6))
+            story.append(Paragraph(r['email'], email_heading_style))
+            bullets = []
+            for b in r.get('breaches', []):
+                title = b.get('Title') or b.get('Name') or 'Unknown Breach'
+                date = b.get('BreachDate') or 'Unknown Date'
+                domain = b.get('Domain') or ''
+                # Keep bullet concise and copy-friendly
+                text = f"{title} ({date})" + (f" — {domain}" if domain else '')
+                bullets.append(ListItem(Paragraph(text, bullet_style)))
+            if bullets:
+                story.append(ListFlowable(bullets, bulletType='bullet', start='bulletchar'))
+
+    # Build with header/footer on every page
+    doc.build(story, onFirstPage=draw_header_footer, onLaterPages=draw_header_footer)
     logger.info(f"PDF report exported to {filename}")
     return filename
 
@@ -1051,6 +1231,27 @@ def get_export_history():
     
     files.sort(key=lambda x: x['created'], reverse=True)
     return jsonify(files)
+
+@app.route('/upload-cover', methods=['POST'])
+def upload_cover():
+    """Upload a custom cover image for PDF reports. Accepts PNG/JPG/JPEG."""
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file part'}), 400
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No selected file'}), 400
+
+    allowed = {'.png', '.jpg', '.jpeg'}
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext not in allowed:
+        return jsonify({'error': 'Unsupported file type'}), 400
+
+    os.makedirs(Config.UPLOAD_FOLDER, exist_ok=True)
+    save_name = 'cover' + ext
+    save_path = os.path.join(Config.UPLOAD_FOLDER, save_name)
+    file.save(save_path)
+    logger.info(f"Uploaded custom cover image: {save_path}")
+    return jsonify({'message': 'Cover uploaded', 'path': save_path, 'filename': save_name})
 
 if __name__ == "__main__":
     os.makedirs('uploads', exist_ok=True)
