@@ -12,6 +12,8 @@ class Config:
     
     # Rate limiting
     RATE_LIMIT_PER_MINUTE = int(os.environ.get('RATE_LIMIT_PER_MINUTE', 10))
+    # Optional: check HIBP pastes (can slow scanning, doubles API calls)
+    CHECK_PASTES = os.environ.get('CHECK_PASTES', 'true').lower() == 'true'
     
     # Flask settings
     SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')

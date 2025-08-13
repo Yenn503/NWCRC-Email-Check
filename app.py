@@ -38,7 +38,8 @@ except ImportError:
 
 app = Flask(__name__)
 app.config.from_object(Config)
-socketio = SocketIO(app, cors_allowed_origins="*")
+# Restrict CORS origins for Socket.IO to local development origins
+socketio = SocketIO(app, cors_allowed_origins=["http://localhost:5000", "http://127.0.0.1:5000"])
 
 logging.basicConfig(
     level=logging.INFO,
@@ -59,14 +60,30 @@ class BreachChecker:
         self.session = requests.Session()
         self.session.headers.update({
             'hibp-api-key': api_key,
-            'User-Agent': 'EmailBreachScanner/1.0'
+            'User-Agent': 'NWCRC-Email-Check/1.0 (+https://github.com/Yenn503/NWCRC-Email-Check)',
+            'Accept': 'application/json'
         })
         
+    def _get_with_retry(self, url: str, timeout: int = 30):
+        """Perform GET with a single retry on 429 honoring Retry-After."""
+        response = self.session.get(url, timeout=timeout)
+        if response.status_code == 429:
+            retry_after = response.headers.get('Retry-After')
+            try:
+                delay = int(retry_after) if retry_after else 60
+                delay = max(1, min(delay, 60))
+            except Exception:
+                delay = 60
+            logger.warning(f"Rate limited. Retrying after {delay}s for URL {url}")
+            time.sleep(delay)
+            return self.session.get(url, timeout=timeout)
+        return response
+
     def check_breaches(self, email: str) -> Dict:
         """Check if email appears in any breaches"""
         try:
             url = f"{self.base_url}/breachedaccount/{email}"
-            response = self.session.get(url, timeout=30)
+            response = self._get_with_retry(url, timeout=30)
             
             if response.status_code == 200:
                 breaches = response.json()
@@ -84,10 +101,20 @@ class BreachChecker:
                     'severity': 'clean'
                 }
             elif response.status_code == 429:
-                logger.warning(f"Rate limit exceeded for {email}")
+                retry_after = response.headers.get('Retry-After')
+                logger.warning(f"Rate limit exceeded for {email}; Retry-After={retry_after}")
                 return {
                     'status': 'error',
                     'error': 'Rate limit exceeded',
+                    'breaches': [],
+                    'breach_count': 0,
+                    'retry_after': retry_after
+                }
+            elif response.status_code == 401:
+                logger.error("Unauthorized (401) from HIBP. Check that your API key is valid and active.")
+                return {
+                    'status': 'error',
+                    'error': 'Unauthorized: Invalid or inactive API key',
                     'breaches': [],
                     'breach_count': 0
                 }
@@ -113,7 +140,7 @@ class BreachChecker:
         """Check if email appears in any pastes"""
         try:
             url = f"{self.base_url}/pasteaccount/{email}"
-            response = self.session.get(url, timeout=30)
+            response = self._get_with_retry(url, timeout=30)
             
             if response.status_code == 200:
                 pastes = response.json()
@@ -184,6 +211,7 @@ class BatchProcessor:
         self.should_stop = False
         self.processing_thread = None
         self.rate_limit_delay = 60 / Config.RATE_LIMIT_PER_MINUTE  # Convert to seconds between requests
+        self._lock = threading.Lock()
         
     def start_batch_scan(self, emails: List[str]) -> str:
         """Start a new batch scan"""
@@ -210,7 +238,8 @@ class BatchProcessor:
         
         # Initialize batch
         self.current_batch_id = str(uuid.uuid4())[:8]
-        self.scan_results = []
+        with self._lock:
+            self.scan_results = []
         self.scan_queue = Queue()
         
         # Add emails to queue
@@ -218,15 +247,16 @@ class BatchProcessor:
             self.scan_queue.put(email)
         
         # Initialize progress
-        self.scan_progress = {
-            'total': len(unique_emails),
-            'completed': 0,
-            'current_email': '',
-            'status': 'running',
-            'start_time': datetime.now().isoformat(),
-            'estimated_completion': None,
-            'batch_id': self.current_batch_id
-        }
+        with self._lock:
+            self.scan_progress = {
+                'total': len(unique_emails),
+                'completed': 0,
+                'current_email': '',
+                'status': 'running',
+                'start_time': datetime.now().isoformat(),
+                'estimated_completion': None,
+                'batch_id': self.current_batch_id
+            }
         
         # Start processing thread
         self.is_processing = True
@@ -243,21 +273,27 @@ class BatchProcessor:
         """Pause the current batch processing"""
         if self.is_processing:
             self.is_paused = True
-            self.scan_progress['status'] = 'paused'
+            with self._lock:
+                self.scan_progress['status'] = 'paused'
             logger.info(f"Paused batch scan {self.current_batch_id}")
     
     def resume_batch(self):
         """Resume the paused batch processing"""
         if self.is_processing and self.is_paused:
             self.is_paused = False
-            self.scan_progress['status'] = 'running'
+            with self._lock:
+                self.scan_progress['status'] = 'running'
             logger.info(f"Resumed batch scan {self.current_batch_id}")
     
     def stop_batch(self):
         """Stop the current batch processing"""
         if self.is_processing:
             self.should_stop = True
-            self.scan_progress['status'] = 'stopped'
+            with self._lock:
+                self.scan_progress['status'] = 'stopped'
+            # Try to join the processing thread for clean stop
+            if self.processing_thread and self.processing_thread.is_alive():
+                self.processing_thread.join(timeout=1)
             logger.info(f"Stopped batch scan {self.current_batch_id}")
     
     def _process_batch(self):
@@ -273,22 +309,25 @@ class BatchProcessor:
                 
                 try:
                     email = self.scan_queue.get_nowait()
-                    self.scan_progress['current_email'] = email
+                    with self._lock:
+                        self.scan_progress['current_email'] = email
                     
                     # Emit progress update
                     socketio.emit('scan_progress', self.scan_progress)
                     
                     # Check email
                     result = self._scan_single_email(email)
-                    self.scan_results.append(result)
+                    with self._lock:
+                        self.scan_results.append(result)
                     
                     # Update progress
-                    self.scan_progress['completed'] += 1
-                    self._update_estimated_completion()
+                    with self._lock:
+                        self.scan_progress['completed'] += 1
+                        self._update_estimated_completion()
                     
                     # Emit result
                     socketio.emit('scan_result', result)
-                    socketio.emit('scan_progress', self.scan_progress)
+                    socketio.emit('scan_progress', self.get_status_snapshot())
                     
                     # Rate limiting
                     if not self.scan_queue.empty():
@@ -301,15 +340,16 @@ class BatchProcessor:
                     continue
             
             # Batch completed
-            self.scan_progress['status'] = 'completed' if not self.should_stop else 'stopped'
-            self.scan_progress['current_email'] = ''
-            self.is_processing = False
+            with self._lock:
+                self.scan_progress['status'] = 'completed' if not self.should_stop else 'stopped'
+                self.scan_progress['current_email'] = ''
+                self.is_processing = False
             
             # Emit final update
-            socketio.emit('scan_progress', self.scan_progress)
+            socketio.emit('scan_progress', self.get_status_snapshot())
             socketio.emit('batch_complete', {
                 'batch_id': self.current_batch_id,
-                'total_results': len(self.scan_results),
+                'total_results': len(self.get_results_snapshot()),
                 'statistics': self.get_batch_statistics()
             })
             
@@ -317,8 +357,9 @@ class BatchProcessor:
             
         except Exception as e:
             logger.error(f"Batch processing error: {str(e)}")
-            self.scan_progress['status'] = 'error'
-            self.is_processing = False
+            with self._lock:
+                self.scan_progress['status'] = 'error'
+                self.is_processing = False
             socketio.emit('scan_error', {'error': str(e)})
     
     def _scan_single_email(self, email: str) -> Dict:
@@ -329,8 +370,10 @@ class BatchProcessor:
             # Check breaches
             breach_result = self.breach_checker.check_breaches(email)
             
-            # Check pastes (optional, doesn't affect main status)
-            paste_result = self.breach_checker.check_pastes(email)
+            # Check pastes (optional, can be disabled to improve speed)
+            paste_result = {'pastes': [], 'paste_count': 0}
+            if Config.CHECK_PASTES:
+                paste_result = self.breach_checker.check_pastes(email)
             
             # Combine results
             result = {
@@ -382,21 +425,24 @@ class BatchProcessor:
     
     def get_batch_statistics(self) -> Dict:
         """Get comprehensive batch statistics"""
-        if not self.scan_results:
-            return {}
+        with self._lock:
+            if not self.scan_results:
+                return {}
+            results_copy = list(self.scan_results)
+            progress_copy = dict(self.scan_progress)
         
         stats = {
-            'total_emails': len(self.scan_results),
-            'clean_emails': len([r for r in self.scan_results if r['status'] == 'clean']),
-            'compromised_emails': len([r for r in self.scan_results if r['status'] == 'compromised']),
-            'error_emails': len([r for r in self.scan_results if r['status'] == 'error']),
-            'total_breaches': sum(r.get('breach_count', 0) for r in self.scan_results),
-            'total_pastes': sum(r.get('paste_count', 0) for r in self.scan_results),
+            'total_emails': len(results_copy),
+            'clean_emails': len([r for r in results_copy if r['status'] == 'clean']),
+            'compromised_emails': len([r for r in results_copy if r['status'] == 'compromised']),
+            'error_emails': len([r for r in results_copy if r['status'] == 'error']),
+            'total_breaches': sum(r.get('breach_count', 0) for r in results_copy),
+            'total_pastes': sum(r.get('paste_count', 0) for r in results_copy),
         }
         
         # Calculate processing time
-        if self.scan_progress.get('start_time'):
-            start_time = self.scan_progress['start_time']
+        if progress_copy.get('start_time'):
+            start_time = progress_copy['start_time']
             if isinstance(start_time, str):
                 try:
                     start_time = datetime.fromisoformat(start_time)
@@ -408,19 +454,27 @@ class BatchProcessor:
         
         # Severity breakdown
         severity_counts = defaultdict(int)
-        for result in self.scan_results:
+        for result in results_copy:
             if result['status'] == 'compromised':
                 severity_counts[result.get('severity', 'unknown')] += 1
         stats['severity_breakdown'] = dict(severity_counts)
         
         # Top breaches
         breach_counts = defaultdict(int)
-        for result in self.scan_results:
+        for result in results_copy:
             for breach in result.get('breaches', []):
                 breach_counts[breach.get('Name', 'Unknown')] += 1
         stats['top_breaches'] = dict(sorted(breach_counts.items(), key=lambda x: x[1], reverse=True)[:10])
         
         return stats
+
+    def get_status_snapshot(self) -> Dict:
+        with self._lock:
+            return dict(self.scan_progress)
+
+    def get_results_snapshot(self) -> List[Dict]:
+        with self._lock:
+            return list(self.scan_results)
 
 try:
     Config.validate_config()
@@ -508,8 +562,8 @@ def batch_control():
 def batch_status():
     """Get current batch status"""
     return jsonify({
-        'progress': batch_processor.scan_progress,
-        'results_count': len(batch_processor.scan_results),
+        'progress': batch_processor.get_status_snapshot(),
+        'results_count': len(batch_processor.get_results_snapshot()),
         'is_processing': batch_processor.is_processing
     })
 
@@ -517,9 +571,9 @@ def batch_status():
 def batch_results():
     """Get current batch results"""
     return jsonify({
-        'results': batch_processor.scan_results,
+        'results': batch_processor.get_results_snapshot(),
         'statistics': batch_processor.get_batch_statistics(),
-        'progress': batch_processor.scan_progress
+        'progress': batch_processor.get_status_snapshot()
     })
 
 @app.route('/export-results', methods=['POST'])
@@ -564,7 +618,7 @@ def export_results():
         logger.error(f"Export failed: {str(e)}")
         return jsonify({'error': f'Export failed: {str(e)}'}), 500
 
-def export_json(results, batch_id, timestamp, options):
+def write_json_file(results, batch_id, timestamp, options):
     """Export results as JSON with enhanced metadata"""
     filename = f"breach_scan_results_{batch_id}_{timestamp}.json"
     filepath = os.path.join('exports', filename)
@@ -600,13 +654,16 @@ def export_json(results, batch_id, timestamp, options):
         export_data['results'] = [r for r in export_data['results'] 
                                 if r.get('severity') in ['high', 'critical']]
     
-    with open(filepath, 'w') as f:
+    with open(filepath, 'w', encoding='utf-8') as f:
         json.dump(export_data, f, indent=2)
-    
     logger.info(f"JSON results exported to {filename}")
+    return filename
+
+def export_json(results, batch_id, timestamp, options):
+    filename = write_json_file(results, batch_id, timestamp, options)
     return jsonify({'message': 'Results exported successfully', 'filename': filename, 'format': 'json'})
 
-def export_csv(results, batch_id, timestamp, options):
+def write_csv_file(results, batch_id, timestamp, options):
     """Export results as CSV with customizable columns"""
     filename = f"breach_scan_results_{batch_id}_{timestamp}.csv"
     filepath = os.path.join('exports', filename)
@@ -661,14 +718,17 @@ def export_csv(results, batch_id, timestamp, options):
                 sensitive_breaches,
                 result['timestamp']
             ])
-    
     logger.info(f"CSV results exported to {filename}")
+    return filename
+
+def export_csv(results, batch_id, timestamp, options):
+    filename = write_csv_file(results, batch_id, timestamp, options)
     return jsonify({'message': 'Results exported successfully', 'filename': filename, 'format': 'csv'})
 
-def export_excel(results, batch_id, timestamp, options):
+def write_excel_file(results, batch_id, timestamp, options):
     """Export results as Excel with formatting and multiple sheets"""
     if not EXCEL_AVAILABLE:
-        return jsonify({'error': 'Excel export not available - openpyxl not installed'}), 400
+        raise RuntimeError('Excel export not available - openpyxl not installed')
     
     filename = f"breach_scan_results_{batch_id}_{timestamp}.xlsx"
     filepath = os.path.join('exports', filename)
@@ -760,12 +820,19 @@ def export_excel(results, batch_id, timestamp, options):
     
     workbook.save(filepath)
     logger.info(f"Excel results exported to {filename}")
-    return jsonify({'message': 'Results exported successfully', 'filename': filename, 'format': 'excel'})
+    return filename
 
-def export_pdf(results, batch_id, timestamp, options):
+def export_excel(results, batch_id, timestamp, options):
+    try:
+        filename = write_excel_file(results, batch_id, timestamp, options)
+        return jsonify({'message': 'Results exported successfully', 'filename': filename, 'format': 'excel'})
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 400
+
+def write_pdf_file(results, batch_id, timestamp, options):
     """Export results as PDF report"""
     if not PDF_AVAILABLE:
-        return jsonify({'error': 'PDF export not available - reportlab not installed'}), 400
+        raise RuntimeError('PDF export not available - reportlab not installed')
     
     filename = f"breach_scan_report_{batch_id}_{timestamp}.pdf"
     filepath = os.path.join('exports', filename)
@@ -829,7 +896,7 @@ def export_pdf(results, batch_id, timestamp, options):
     results_data = [['Email', 'Status', 'Severity', 'Breaches', 'Breach Count']]
     
     for result in filtered_results[:50]:  # Limit for PDF readability
-        breaches_str = ', '.join([b['name'] for b in result.get('breaches', [])][:3])  # First 3 breaches
+        breaches_str = ', '.join([b.get('Name', 'Unknown') for b in result.get('breaches', [])][:3])  # First 3 breaches
         if len(result.get('breaches', [])) > 3:
             breaches_str += f" (+{len(result.get('breaches', [])) - 3} more)"
         
@@ -869,9 +936,15 @@ def export_pdf(results, batch_id, timestamp, options):
         story.append(Paragraph(f"Note: Showing first 50 of {len(filtered_results)} results. Export to Excel or CSV for complete data.", styles['Normal']))
     
     doc.build(story)
-    
     logger.info(f"PDF report exported to {filename}")
-    return jsonify({'message': 'Results exported successfully', 'filename': filename, 'format': 'pdf'})
+    return filename
+
+def export_pdf(results, batch_id, timestamp, options):
+    try:
+        filename = write_pdf_file(results, batch_id, timestamp, options)
+        return jsonify({'message': 'Results exported successfully', 'filename': filename, 'format': 'pdf'})
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 400
 
 def export_zip_package(results, batch_id, timestamp, options):
     """Export comprehensive package with multiple formats"""
@@ -880,31 +953,26 @@ def export_zip_package(results, batch_id, timestamp, options):
     os.makedirs('exports', exist_ok=True)
     
     with zipfile.ZipFile(zip_filepath, 'w', zipfile.ZIP_DEFLATED) as zipf:
-        # Export JSON
-        json_result = export_json(results, batch_id, timestamp, options)
-        if json_result[1] == 200:  # Success
-            json_filename = json_result[0].get_json()['filename']
-            zipf.write(os.path.join('exports', json_filename), json_filename)
-        
-        # Export CSV
-        csv_result = export_csv(results, batch_id, timestamp, options)
-        if csv_result[1] == 200:  # Success
-            csv_filename = csv_result[0].get_json()['filename']
-            zipf.write(os.path.join('exports', csv_filename), csv_filename)
-        
-        # Export Excel if available
+        # Generate files and add to the ZIP
+        json_filename = write_json_file(results, batch_id, timestamp, options)
+        zipf.write(os.path.join('exports', json_filename), json_filename)
+
+        csv_filename = write_csv_file(results, batch_id, timestamp, options)
+        zipf.write(os.path.join('exports', csv_filename), csv_filename)
+
         if EXCEL_AVAILABLE:
-            excel_result = export_excel(results, batch_id, timestamp, options)
-            if excel_result[1] == 200:  # Success
-                excel_filename = excel_result[0].get_json()['filename']
+            try:
+                excel_filename = write_excel_file(results, batch_id, timestamp, options)
                 zipf.write(os.path.join('exports', excel_filename), excel_filename)
-        
-        # Export PDF if available
+            except Exception as e:
+                logger.warning(f"Excel export skipped: {e}")
+
         if PDF_AVAILABLE:
-            pdf_result = export_pdf(results, batch_id, timestamp, options)
-            if pdf_result[1] == 200:  # Success
-                pdf_filename = pdf_result[0].get_json()['filename']
+            try:
+                pdf_filename = write_pdf_file(results, batch_id, timestamp, options)
                 zipf.write(os.path.join('exports', pdf_filename), pdf_filename)
+            except Exception as e:
+                logger.warning(f"PDF export skipped: {e}")
         
         # Add README
         readme_content = f"""Email Breach Scanner Export Package
@@ -936,6 +1004,12 @@ def download_file(filename):
     
     if not os.path.abspath(filepath).startswith(os.path.abspath('exports')):
         return jsonify({'error': 'Access denied'}), 403
+    
+    # Allowlist extensions produced by the app
+    allowed_exts = {'.json', '.csv', '.xlsx', '.pdf', '.zip', '.txt'}
+    _, ext = os.path.splitext(safe_filename)
+    if ext.lower() not in allowed_exts:
+        return jsonify({'error': 'File type not allowed'}), 403
     
     try:
         return send_file(filepath, as_attachment=True, download_name=safe_filename)
@@ -982,4 +1056,5 @@ if __name__ == "__main__":
     os.makedirs('uploads', exist_ok=True)
     os.makedirs('exports', exist_ok=True)
     
-    socketio.run(app, debug=Config.DEBUG, host='0.0.0.0', port=5000)
+    # Disable reloader to prevent background threads from duplicating
+    socketio.run(app, debug=Config.DEBUG, host='0.0.0.0', port=5000, use_reloader=False)
