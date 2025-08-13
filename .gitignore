@@ -5,3 +5,23 @@ __pycache__/
 *.pyd
 .env.*
 .DS_Store
+
+# Local artifacts
+breach_scanner.log
+logs/
+exports/
+uploads/
+
+# Virtual envs
+venv/
+.venv/
+
+# Build/dist
+dist/
+build/
+*.egg-info/
+
+# Testing/coverage
+.pytest_cache/
+.coverage
+coverage.xml

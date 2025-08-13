@@ -14,23 +14,18 @@ def install_requirements():
 
 def create_directories():
     """Create necessary directories"""
-    directories = ["exports", "logs", "static/uploads"]
+    directories = ["exports", "uploads"]
     for directory in directories:
         os.makedirs(directory, exist_ok=True)
         print(f"Created directory: {directory}")
 
 def setup_environment():
-    """Setup environment file"""
-    env_file = ".env"
-    if not os.path.exists(env_file):
-        with open(env_file, "w") as f:
-            f.write("# Email Breach Scanner Configuration\n")
-            f.write("HIBP_API_KEY=your_api_key_here\n")
-            f.write("SECRET_KEY=your_secret_key_here\n")
-            f.write("DEBUG=True\n")
-        print(f"Created {env_file} - Please update with your API keys")
+    """Point user to .env.example"""
+    example_file = ".env.example"
+    if os.path.exists(example_file):
+        print("Use .env.example as a template: copy it to .env and fill values.")
     else:
-        print(f"{env_file} already exists")
+        print("Create a .env file with HIBP_API_KEY, SECRET_KEY, FLASK_DEBUG, RATE_LIMIT_PER_MINUTE, CHECK_PASTES.")
 
 def main():
     print("Setting up Email Breach Scanner...")

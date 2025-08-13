@@ -12,25 +12,31 @@ A professional web interface for checking email addresses against data breach da
 - **Export Results**: Save results as JSON or CSV files
 - **Professional UI**: Sleek design with midnight blue, black, and grey color scheme
 
-## Setup Instructions
+## Setup
 
-1. **Install Dependencies**:
-   \`\`\`bash
-   pip install -r requirements.txt
-   \`\`\`
+1) Install dependencies
 
-2. **Get API Key**:
-   - Sign up at https://haveibeenpwned.com/API/Key
-   - Set your API key as environment variable:
-     \`\`\`bash
-     export HIBP_API_KEY="e181d5c357bc4be483f724aba0565f39"
-     \`\`\`
-   - Or edit the `API_KEY` variable in `app.py`
+```powershell
+pip install -r requirements.txt
+```
 
-3. **Run the Application**:
-   \`\`\`bash
-   python app.py
-   \`\`\`
+2) Configure environment
+
+- Copy `.env.example` to `.env` and fill the values:
+
+```
+HIBP_API_KEY=your_hibp_api_key
+SECRET_KEY=change_me
+FLASK_DEBUG=false
+RATE_LIMIT_PER_MINUTE=10
+CHECK_PASTES=false
+```
+
+3) Run the app
+
+```powershell
+python app.py
+```
 
 4. **Access the Interface**:
    - Open your browser to `http://127.0.0.1:5000`
@@ -47,14 +53,13 @@ A professional web interface for checking email addresses against data breach da
 2. Or upload a .txt/.csv file with email addresses
 3. Click "Start Batch Scan"
 4. Monitor real-time progress with ETA
-5. Export results when complete
+5. Export results (CSV, JSON, Excel, PDF, or ZIP) when complete
 
-## API Rate Limiting
+## API Rate Limiting & Performance
 
-The application automatically handles rate limiting:
-- Maximum 10 requests per minute
-- 6-second delay between requests
-- Progress tracking with ETA calculation
+- Default: 10 requests/min (configurable via `RATE_LIMIT_PER_MINUTE` according to your HIBP plan)
+- Paste checks can slow scans: set `CHECK_PASTES=false` for faster throughput
+- Automatic handling of `429 Too Many Requests` via Retry-After
 
 ## File Structure
 
@@ -69,12 +74,13 @@ email-breach-scanner/
 │   │   └── style.css     # Styling
 │   └── js/
 │       └── app.js        # Frontend JavaScript
-└── exports/              # Generated export files
+├── exports/              # Generated export files
+└── uploads/              # Uploaded files (ignored)
 \`\`\`
 
 ## Security Notes
 
-- Keep your API key secure and never commit it to version control
+- Keep your API key secure and never commit it to version control (.env is gitignored)
 - The application runs locally for security
 - All data processing happens on your machine
 - No email addresses are stored permanently
