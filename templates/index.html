@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Email Breach Scanner</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
+</head>
+<body>
+    <div class="toggle-switch">
+        <label>
+            <span id="toggle-label">Light Mode</span>
+            <input type="checkbox" id="mode-toggle">
+            <span class="toggle-slider"></span>
+        </label>
+    </div>
+    <div class="container">
+        <header class="header">
+            <img src="{{ url_for('static', filename='img/Logo.png') }}" alt="NWCRC Logo" class="logo" />
+            <h1>NWCRC Breach Scanner</h1>
+            <p>Check if your email addresses have been compromised in data breaches</p>
+        </header>
+
+        <main class="main-content">
+            <!-- Single Email Scan -->
+            <section class="scan-section">
+                <h2>Single Email Scan</h2>
+                <div class="input-group">
+                    <input type="email" id="single-email" placeholder="Enter email address" class="email-input">
+                    <button id="scan-single-btn" class="btn btn-primary">Scan Email</button>
+                </div>
+                <div id="single-result" class="result-container"></div>
+            </section>
+
+            <!-- Batch Email Scan -->
+            <section class="scan-section">
+                <h2>Batch Email Scan</h2>
+                <div class="batch-input-group">
+                    <textarea id="batch-emails" placeholder="Enter email addresses (one per line)" class="batch-textarea"></textarea>
+                    <div class="batch-controls">
+                        <input type="file" id="file-upload" accept=".txt,.csv" class="file-input" style="display:none;">
+                        <button id="custom-file-btn" class="btn btn-secondary" type="button">📁 Upload Emails</button>
+                        <button id="scan-batch-btn" class="btn btn-primary">Start Batch Scan</button>
+                    </div>
+                </div>
+                
+                <!-- Enhanced Progress Bar with Controls -->
+                <div id="progress-container" class="progress-container" style="display: none;">
+                    <div class="progress-header">
+                        <div class="progress-info">
+                            <span id="progress-text">Scanning...</span>
+                            <span id="eta-text"></span>
+                        </div>
+                        <div class="progress-controls">
+                            <button id="pause-btn" class="btn btn-control">Pause</button>
+                            <button id="resume-btn" class="btn btn-control" style="display: none;">Resume</button>
+                            <button id="cancel-btn" class="btn btn-danger">Cancel</button>
+                        </div>
+                    </div>
+                    <div class="progress-bar">
+                        <div id="progress-fill" class="progress-fill"></div>
+                    </div>
+                    <div class="progress-stats">
+                        <div class="stat-item">
+                            <span class="stat-label">Clean:</span>
+                            <span id="clean-count" class="stat-value">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Compromised:</span>
+                            <span id="compromised-count" class="stat-value">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Errors:</span>
+                            <span id="error-count" class="stat-value">0</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Results -->
+                <div id="batch-results" class="results-container"></div>
+                
+                <!-- Export Controls -->
+                <div id="export-controls" class="export-controls" style="display: none;">
+                    <select id="export-type" class="export-type-select">
+                        <option value="csv">CSV</option>
+                        <option value="json">JSON</option>
+                        <option value="xlsx">Excel</option>
+                    </select>
+                    <button id="export-selector" class="btn btn-primary">📥 Export Results</button>
+                    <button id="show-stats-btn" class="btn btn-secondary">📊 Show Statistics</button>
+                </div>
+            </section>
+
+            <!-- Statistics Modal -->
+            <div id="stats-modal" class="modal" style="display: none;">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3>Batch Statistics</h3>
+                        <button id="close-stats" class="btn btn-close">&times;</button>
+                    </div>
+                    <div id="stats-content" class="modal-body">
+                        <!-- Statistics will be populated here -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Notification Container -->
+            <div id="notification-container" class="notification-container"></div>
+
+            <!-- Branding Footer -->
+            <footer class="branding-footer">
+                <div class="footer-content">
+                    <span>&copy; 2025 NWCRC | Breach Scanner &mdash; Built with ❤️ for cyber resilience</span>
+                </div>
+            </footer>
+        </main>
+    </div>
+
+            <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+            <script>
+                // Dark/Light mode toggle logic
+                const modeToggle = document.getElementById('mode-toggle');
+                const toggleLabel = document.getElementById('toggle-label');
+                const body = document.body;
+                function updateToggleLabel() {
+                    toggleLabel.textContent = modeToggle.checked ? 'Light Mode' : 'Dark Mode';
+                }
+                // Load mode from localStorage
+                if (localStorage.getItem('theme') === 'light') {
+                    body.classList.add('light-mode');
+                    modeToggle.checked = true;
+                }
+                updateToggleLabel();
+                modeToggle.addEventListener('change', function() {
+                    if (this.checked) {
+                        body.classList.add('light-mode');
+                        localStorage.setItem('theme', 'light');
+                    } else {
+                        body.classList.remove('light-mode');
+                        localStorage.setItem('theme', 'dark');
+                    }
+                    updateToggleLabel();
+                });
+            </script>
+</body>
+</html>

@@ -1,0 +1,4 @@
+Email,Status,Severity,Breach Count,Paste Count,Breaches,Pastes,Data Classes,Verified Breaches,Sensitive Breaches,Timestamp
+lewisdesmondwork@outlook.com,clean,clean,0,0,,,,0,0,2025-08-13T02:32:33.924390
+fredfrillyfred@yahoo.com,compromised,medium,5,0,ModernBusinessSolutions (); VerificationsIO (); Cit0day (); Deezer (); NotSOCRadar (),,,0,0,2025-08-13T02:32:41.094639
+jill_1977@hotmail.co.uk,compromised,low,1,0,OnlinerSpambot (),,,0,0,2025-08-13T02:32:47.470087

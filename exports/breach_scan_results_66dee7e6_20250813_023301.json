@@ -1,0 +1,94 @@
+{
+  "metadata": {
+    "batch_id": "66dee7e6",
+    "export_timestamp": "2025-08-13T02:33:01.873380",
+    "export_format": "json",
+    "total_emails": 3,
+    "scanner_version": "1.0",
+    "api_version": "v3",
+    "export_options": {}
+  },
+  "statistics": {
+    "total_emails": 3,
+    "clean_emails": 1,
+    "compromised_emails": 2,
+    "error_emails": 0,
+    "total_breaches": 6,
+    "total_pastes": 0,
+    "processing_time": 27.949207,
+    "severity_breakdown": {
+      "medium": 1,
+      "low": 1
+    },
+    "top_breaches": {
+      "ModernBusinessSolutions": 1,
+      "VerificationsIO": 1,
+      "Cit0day": 1,
+      "Deezer": 1,
+      "NotSOCRadar": 1,
+      "OnlinerSpambot": 1
+    }
+  },
+  "summary": {
+    "clean_emails": 1,
+    "compromised_emails": 2,
+    "error_emails": 0,
+    "total_breaches": 6,
+    "total_pastes": 0
+  },
+  "results": [
+    {
+      "email": "lewisdesmondwork@outlook.com",
+      "timestamp": "2025-08-13T02:32:33.924390",
+      "status": "clean",
+      "breaches": [],
+      "breach_count": 0,
+      "severity": "clean",
+      "pastes": [],
+      "paste_count": 0,
+      "error": null
+    },
+    {
+      "email": "fredfrillyfred@yahoo.com",
+      "timestamp": "2025-08-13T02:32:41.094639",
+      "status": "compromised",
+      "breaches": [
+        {
+          "Name": "ModernBusinessSolutions"
+        },
+        {
+          "Name": "VerificationsIO"
+        },
+        {
+          "Name": "Cit0day"
+        },
+        {
+          "Name": "Deezer"
+        },
+        {
+          "Name": "NotSOCRadar"
+        }
+      ],
+      "breach_count": 5,
+      "severity": "medium",
+      "pastes": [],
+      "paste_count": 0,
+      "error": null
+    },
+    {
+      "email": "jill_1977@hotmail.co.uk",
+      "timestamp": "2025-08-13T02:32:47.470087",
+      "status": "compromised",
+      "breaches": [
+        {
+          "Name": "OnlinerSpambot"
+        }
+      ],
+      "breach_count": 1,
+      "severity": "low",
+      "pastes": [],
+      "paste_count": 0,
+      "error": null
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+Email,Status,Severity,Breach Count,Paste Count,Breaches,Pastes,Data Classes,Verified Breaches,Sensitive Breaches,Timestamp
+lewisdesmond@hotmail.co.uk,compromised,high,9,0,ExploitIn (); Collection1 (); MindJolt (); piZap (); Zynga (); Deezer (); Twitter200M (); NotSOCRadar (); AlienStealerLogs (),,,0,0,2025-08-13T09:45:31.698403
+lewisdesmondwork@outlook.com,clean,clean,0,0,,,,0,0,2025-08-13T09:45:38.592028
+fredfrillyfred@yahoo.com,compromised,medium,5,0,ModernBusinessSolutions (); VerificationsIO (); Cit0day (); Deezer (); NotSOCRadar (),,,0,0,2025-08-13T09:45:45.049261
+jill_1977@hotmail.co.uk,compromised,low,1,0,OnlinerSpambot (),,,0,0,2025-08-13T09:45:51.518949
+yenn404@proton.me,clean,clean,0,0,,,,0,0,2025-08-13T09:45:57.896467
