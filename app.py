@@ -32,7 +32,6 @@ try:
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib import colors
     from reportlab.lib.units import inch
-    from reportlab.lib.utils import ImageReader
     PDF_AVAILABLE = True
 except ImportError:
     PDF_AVAILABLE = False
@@ -878,27 +877,29 @@ def write_pdf_file(results, batch_id, timestamp, options):
     def draw_header_footer(canvas_obj, doc_obj):
         canvas_obj.saveState()
         width, height = A4
-        # Header bar
-        bar_height = 30
-        bar_y = height - bar_height - 18
-        canvas_obj.setFillColor(brand_primary)
-        canvas_obj.rect(0, bar_y, width, bar_height, stroke=0, fill=1)
+        header_y = height - 50
 
-        # Logo centered vertically within the bar
+        # Header separator line
+        canvas_obj.setStrokeColor(brand_primary)
+        canvas_obj.setFillColor(brand_primary)
+        canvas_obj.setLineWidth(1)
+        canvas_obj.line(36, header_y - 18, width - 36, header_y - 18)
+
+        # Logo
         if logo_path:
             try:
-                logo_h = 22
-                logo_y = bar_y + (bar_height - logo_h) / 2
-                canvas_obj.drawImage(logo_path, 36, logo_y, height=logo_h, preserveAspectRatio=True, mask='auto')
+                logo_h = 28
+                canvas_obj.drawImage(logo_path, 36, header_y - logo_h, height=logo_h, preserveAspectRatio=True, mask='auto')
             except Exception:
                 pass
 
-        # Title and date in header bar
+        # Title and date
         canvas_obj.setFont('Helvetica-Bold', 12)
-        canvas_obj.setFillColor(colors.whitesmoke)
-        canvas_obj.drawString(200, bar_y + (bar_height - 12) / 2 + 2, 'Email Breach Scan Report')
+        canvas_obj.setFillColor(brand_primary)
+        canvas_obj.drawString(200, header_y - 4, 'Email Breach Scan Report')
         canvas_obj.setFont('Helvetica', 9)
-        canvas_obj.drawRightString(width - 36, bar_y + (bar_height - 9) / 2 + 1, datetime.now().strftime('%Y-%m-%d %H:%M'))
+        canvas_obj.setFillColor(colors.black)
+        canvas_obj.drawRightString(width - 36, header_y - 4, datetime.now().strftime('%Y-%m-%d %H:%M'))
 
         # Footer line and page number
         footer_y = 40
@@ -927,72 +928,13 @@ def write_pdf_file(results, batch_id, timestamp, options):
         alignment=1,
         spaceAfter=24
     )
-    # Optional custom cover image
-    custom_cover_path = options.get('cover_image')
-    if not custom_cover_path:
-        # look for a default uploaded cover
-        for candidate in ['cover.jpg', 'cover.jpeg', 'cover.png']:
-            candidate_path = os.path.join(Config.UPLOAD_FOLDER, candidate)
-            if os.path.exists(candidate_path):
-                custom_cover_path = candidate_path
-                break
-
-    # Cover page content (blue card styled like the web UI) or custom image
-    cover_title_style = ParagraphStyle('CoverTitle', parent=styles['Heading1'], fontSize=26, textColor=colors.whitesmoke, alignment=1)
-    cover_sub_style = ParagraphStyle('CoverSub', parent=styles['Normal'], fontSize=11, textColor=colors.whitesmoke, alignment=1)
-    if custom_cover_path and os.path.exists(custom_cover_path):
-        # Full-page cover image
-        try:
-            img = ImageReader(custom_cover_path)
-            iw, ih = img.getSize()
-            pw, ph = A4
-            # scale to fit page while preserving aspect ratio
-            scale = min(pw / iw, ph / ih)
-            w, h = iw * scale, ih * scale
-            # center placement
-            x = (pw - w) / 2
-            y = (ph - h) / 2
-            # draw on a blank canvas page by using a temporary story with spacer and onFirstPage hook
-            def draw_custom_cover(c, d):
-                c.saveState()
-                c.drawImage(custom_cover_path, x, y, width=w, height=h, preserveAspectRatio=True, mask='auto')
-                c.restoreState()
-            # Build a single-page cover then continue with main story on later pages
-            cover_story = [Spacer(1, 1)]
-            SimpleDocTemplate(filepath, pagesize=A4).build(cover_story, onFirstPage=draw_custom_cover)
-            # reinitialize doc to append subsequent pages
-            doc = SimpleDocTemplate(
-                filepath,
-                pagesize=A4,
-                rightMargin=36,
-                leftMargin=36,
-                topMargin=72,
-                bottomMargin=54
-            )
-        except Exception as e:
-            logger.warning(f"Failed to render custom cover: {e}; using default cover")
-            custom_cover_path = None
-
-    if not custom_cover_path:
-        cover_data = [[
-            Paragraph('Email Breach Scan Report', cover_title_style),
-            Paragraph(f'Batch ID: {batch_id} • Generated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}', cover_sub_style),
-            Spacer(1, 8),
-            Paragraph('This report summarizes the results of your email breach scan and includes a copy-friendly appendix of breached accounts.', cover_sub_style)
-        ]]
-        cover = Table(cover_data, colWidths=[doc.width])
-        cover.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, -1), brand_primary),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('LEFTPADDING', (0, 0), (-1, -1), 24),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 24),
-            ('TOPPADDING', (0, 0), (-1, -1), 60),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 60),
-            ('TEXTCOLOR', (0, 0), (-1, -1), colors.whitesmoke),
-        ]))
-        story.append(Spacer(1, 60))
-        story.append(cover)
+    # Cover page content
+    story.append(Spacer(1, 100))
+    story.append(Paragraph('Email Breach Scan Report', title_style))
+    story.append(Paragraph(f'Batch ID: {batch_id} • Generated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}', subtitle_style))
+    story.append(Spacer(1, 30))
+    intro = Paragraph('This report summarizes the results of your email breach scan and includes a copy-friendly appendix of breached accounts.', styles['Normal'])
+    story.append(intro)
     story.append(PageBreak())
 
     # Summary section
@@ -1231,27 +1173,6 @@ def get_export_history():
     
     files.sort(key=lambda x: x['created'], reverse=True)
     return jsonify(files)
-
-@app.route('/upload-cover', methods=['POST'])
-def upload_cover():
-    """Upload a custom cover image for PDF reports. Accepts PNG/JPG/JPEG."""
-    if 'file' not in request.files:
-        return jsonify({'error': 'No file part'}), 400
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({'error': 'No selected file'}), 400
-
-    allowed = {'.png', '.jpg', '.jpeg'}
-    ext = os.path.splitext(file.filename)[1].lower()
-    if ext not in allowed:
-        return jsonify({'error': 'Unsupported file type'}), 400
-
-    os.makedirs(Config.UPLOAD_FOLDER, exist_ok=True)
-    save_name = 'cover' + ext
-    save_path = os.path.join(Config.UPLOAD_FOLDER, save_name)
-    file.save(save_path)
-    logger.info(f"Uploaded custom cover image: {save_path}")
-    return jsonify({'message': 'Cover uploaded', 'path': save_path, 'filename': save_name})
 
 if __name__ == "__main__":
     os.makedirs('uploads', exist_ok=True)
