@@ -7,6 +7,14 @@
 
 A professional web interface for checking email addresses against data breach databases using the HaveIBeenPwned API.
 
+## Application Screenshot
+
+<p align="center">
+   <img src="mainPage.png" alt="Email Breach Scanner - Main Page" width="900">
+</p>
+
+<p align="center"><em>The main page of the Email Breach Scanner showing single and batch scanning, live progress, and export controls (CSV, JSON, Excel, PDF, ZIP).</em></p>
+
 ## Features
 
 - **Single Email Scanning**: Quick breach check for individual email addresses
