@@ -1,3 +1,8 @@
+<p align="center">
+   <img src="static/img/Logo2.png" alt="Project Logo" width="200">
+  
+</p>
+
 # Email Breach Scanner
 
 A professional web interface for checking email addresses against data breach databases using the HaveIBeenPwned API.
